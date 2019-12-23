@@ -5,8 +5,6 @@ import os
 import shutil
 import datetime
 import win32com.client
-rom iexfinance.stocks import Stock
-from iexfinance.stocks import get_earnings_today
 import time
 import requests
 from bs4 import BeautifulSoup
@@ -14,7 +12,8 @@ import progressbar
 import urllib.request as req
 import urllib.request
 from datetime import datetime
-
+from iexfinance.stocks import Stock
+from iexfinance.stocks import get_earnings_today
 
 # get the data using StockTwits API
 def get_twits(ticker):
@@ -98,39 +97,17 @@ def write_to_csv(file, data):
         print(now.strftime("%Y-%m-%d" + " - updated trending symbols file"))
     except:
         print(now.strftime("%Y-%m-%d" + " - File is not updated. Check if file is open!"))
-        
 
-def send_email(subject,html_body,receiver):
-    
-    olMailItem = 0x0
-    olFormatHTML = 2
-    olFormatPlain = 1
-    olFormatRichText = 3
-    olFormatUnspecified = 0
-    olMailItem = 0x0
-    
-    obj = win32com.client.Dispatch("Outlook.Application")
-    newMail = obj.CreateItem(olMailItem)
-    
-    newMail.BodyFormat = olFormatHTML 
-    
-    newMail.To = receiver
-    newMail.Subject = subject
-    newMail.HTMLBody = html_body
-    
-    newMail.Send()
-    
-    return
-    
-    
+
 def get_iex_price_quote(syms):
-    stock = Stock(syms[0], output_format='pandas', token="sk_4127ca1b4b274a01a41706b12e3d69c7")
-    stock_quote = stock.get_quote()
-    quote = stock_quote.loc[['latestPrice', 'extendedPrice',  'previousClose', 'changePercent', 'change',
-                             'volume', 'avgTotalVolume', 'marketCap']].T
-    if len(syms) > 1:
+    # stock = Stock(syms[0], output_format='pandas', token="sk_4127ca1b4b274a01a41706b12e3d69c7")
+    # stock_quote = stock.get_quote()
+    # quote = stock_quote.loc[['latestPrice', 'extendedPrice',  'previousClose', 'changePercent', 'change',
+    #                         'volume', 'avgTotalVolume', 'marketCap']].T
 
-        for sym in syms[1:]:
+    if len(syms) > 0:
+
+        for sym in syms[0:]:
             try:
                 stock = Stock(sym, output_format='pandas', token="sk_4127ca1b4b274a01a41706b12e3d69c7")
                 stock_quote = stock.get_quote()
@@ -144,30 +121,32 @@ def get_iex_price_quote(syms):
                 stock_quote = pd.DataFrame(data).T
                 stock_quote.columns = cols
 
-            quote = quote.append(stock_quote)
+            if 'quote' in locals():
+                quote = quote.append(stock_quote)
+            else:
+                quote = stock_quote
 
     return quote
 
 
-def get_finviz_stock_chart(syms, fn='./data/finviz/',period='d'):
-    
+def get_finviz_stock_chart(syms, fn='./data/finviz/', period='d'):
     """
     Params:
         syms:   list of symbols
         fn:     file location to save images
         period: chart time frame, i.e. d/w/m
     """
-    
+
     if type(syms) != list and not isinstance(syms, pd.Series):
-        print ("Invalid input: symbol list")
-        return 
-    
+        print("Invalid input: symbol list")
+        return
+
     if len(syms) == 0:
         print("No symbol provided")
         return
 
     img_names = []
-    
+
     for sym in syms:
         if period == 'd':
             sym_url = "https://finviz.com/quote.ashx?t=" + sym
@@ -179,55 +158,85 @@ def get_finviz_stock_chart(syms, fn='./data/finviz/',period='d'):
             print("Invalid period. Default to daily")
             period = 'd'
 
-        req = requests.get(sym_url)
-        soup = BeautifulSoup(req.content, 'html.parser')
+        try:
+            req = requests.get(sym_url)
+            soup = BeautifulSoup(req.content, 'html.parser')
 
-        chart = soup.find_all("img",id="chart0")
-    
-        img_url = "https://finviz.com/" + chart[0]['src']
-        img_name = fn + datetime.now().strftime("%Y%m%d_%H%M_") + sym+ "" + ".jpg"
-    
-        #print(img_name)
-        print(img_url)
-    
-        urllib.request.urlretrieve(img_url, img_name)
-        
-        img_names.append(img_name)
-        
+            chart = soup.find_all("img", id="chart0")
+            img_url = "https://finviz.com/" + chart[0]['src']
+            print(img_url)
+
+            img_name = fn + datetime.now().strftime("%Y%m%d_%H%M_") + sym + "" + ".jpg"
+
+            urllib.request.urlretrieve(img_url, img_name)
+            img_names.append(img_name)
+
+        except:
+            img_names.append("None")
 
     return img_names
-    
-    
+
+
+def send_email(subject, html_body, receiver, images):
+    olMailItem = 0x0
+    olFormatHTML = 2
+    olFormatPlain = 1
+    olFormatRichText = 3
+    olFormatUnspecified = 0
+    olMailItem = 0x0
+
+    obj = win32com.client.Dispatch("Outlook.Application")
+    newMail = obj.CreateItem(olMailItem)
+
+    newMail.BodyFormat = olFormatHTML
+
+    for i in range(len(images)):
+        attachment = newMail.Attachments.Add(images[i])
+        attachment.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", "img" + str(i))
+
+    newMail.To = receiver
+    newMail.Subject = subject
+    newMail.HTMLBody = html_body
+    newMail.Send()
+
+
+def main():
     # windows
-dir = "C:/Users/kunji/Google Drive/Trading2019/PythonScripts/StockTwitsAPI/"
-# dir = "/mnt/c/Users/kunji/Google Drive/Trading2019/PythonScripts/StockTwitsAPI/"
-# mac
-# dir = "/Users/kun/Google Drive/Trading2019/PythonScripts/StockTwitsAPI/"
-os.chdir(dir)
 
-# update historical trending file
-file = dir + "trending_symbols.csv"
-symbols = get_trending_symbols()
-symbols.to_csv("lastest_trending_symbols.csv", header=True)
-write_to_csv(file, symbols)
+    dir = "C:/Users/kunji/Google Drive/Trading2019/PythonScripts/StockTwitsAPI/"
+    # dir = "/mnt/c/Users/kunji/Google Drive/Trading2019/PythonScripts/StockTwitsAPI/"
+    # mac
+    # dir = "/Users/kun/Google Drive/Trading2019/PythonScripts/StockTwitsAPI/"
+    os.chdir(dir)
 
-df = symbols.loc[0:9]
-df = df[['date', 'time', 'symbol', 'title']]
+    # update historical trending file
+    file = dir + "trending_symbols.csv"
+    symbols = get_trending_symbols()
+    symbols.to_csv("lastest_trending_symbols.csv", header=True)
+    write_to_csv(file, symbols)
 
-iex_data = get_iex_price_quote(df['symbol'])
-df = df.join(iex_data.reset_index(drop=True))
-df['marketCap'] = [int(int(x) / 1000000) for x in df['marketCap']]
+    df = symbols.loc[0:9]
+    df = df[['date', 'time', 'symbol', 'title']]
 
-images = get_finviz_stock_chart(df['symbol'],fn=dir+'charts/')
+    iex_data = get_iex_price_quote(df['symbol'])
+    df = df.join(iex_data.reset_index(drop=True))
+    df['marketCap'] = [int(int(x) / 1000000) for x in df['marketCap']]
+    images = get_finviz_stock_chart(df['symbol'],fn=dir+'charts/')
 
-# Send email
-# symbols = symbols[['date', 'time', 'symbol', 'title']]
-subject = 'Trending Symbols'
-receiver = 'elainellxie@gmail.com;kun.ji.info@gmail.com'
-html1 = df.to_html()
-body = html1
+    # Send email
+    # symbols = symbols[['date', 'time', 'symbol', 'title']]
+    subject = 'Stocktwits Trending Symbols'
+    receiver = 'kun.ji.info@gmail.com;elainellxie@gmail.com;sxzhangzsx@gmail.com'
+    html1 = df.to_html()
+    email_images = [x for x in images if 'jpg' in x]
+    body = html1
+    for i in range(len(email_images)):
+        body = body + "<br><img src='cid:img" + str(i) + "'>'"
 
-for image in images:
-    body = body + "<br><img src=" + image + "> "
+    send_email(subject, body, receiver, email_images)
 
-send_email(subject, body, receiver)
+
+if __name__ == '__main__':
+
+    main()
+
